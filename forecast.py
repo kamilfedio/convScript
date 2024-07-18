@@ -73,8 +73,10 @@ class ForecastCleaner(CleanerBaseClass):
             cls._unify_column_names,
             cls._clean_n_lines_base,
             cls._clean_n_lines_lp,
+            cls._move_from_base,
             cls._clean_n_lines_description,
             cls._drop_full_na,
+            cls._replace_problematic_characters,
         ]
         for step in pipeline:
             table = step(table)
@@ -98,6 +100,26 @@ class ForecastCleaner(CleanerBaseClass):
         ]
 
         table.columns = unified_columns
+        return table
+    
+    @staticmethod
+    def _move_from_base(table: pd.DataFrame) -> pd.DataFrame:
+        """
+            move from base column to description
+        Args:
+            table (pd.DataFrame): _description_
+
+        Returns:
+            pd.DataFrame: _description_
+        """
+        _base = table.columns.get_loc(Config.BASE)
+        _desc = table.columns.get_loc(Config.DESCRIPTION)
+        for idx in range(len(table)):
+            current_value = table.iloc[idx, _base]
+            if pd.notna(current_value) and current_value.startswith('Krotność'):
+                table.iloc[idx, _desc] = current_value
+                table.iloc[idx, _base] = np.nan
+        
         return table
     
     @staticmethod
@@ -141,9 +163,7 @@ class ForecastCleaner(CleanerBaseClass):
         for idx in range(len(table) - 1):
             try:
                 current_value = table.iloc[idx, _lp]
-                if pd.isna(current_value) and not str(current_value)[-1] != '.':
-                    continue
-                if str(current_value)[0] != 'd':
+                if pd.isna(current_value) or str(current_value).strip()[-1] != '.':
                     continue
                 next_values = []
                 for _idx in range(idx+1, len(table) -1):
@@ -152,7 +172,7 @@ class ForecastCleaner(CleanerBaseClass):
                     if pd.notna(next_lp) and pd.isna(next_base):
                         next_values.append(next_lp)
                         table.iloc[_idx, _lp] = np.nan
-                        if not str(current_value).endswith('.'):
+                        if not str(next_lp).endswith('.'):
                             break
                     else:
                         break
@@ -185,6 +205,8 @@ class ForecastCleaner(CleanerBaseClass):
                     next_base = table.iloc[_idx, _base]
                     next_lp = table.iloc[_idx, _lp]
                     if pd.notna(next_value) and pd.isna(next_base) and (pd.isna(next_lp) or 'd' in next_lp):
+                        if next_value.endswith('-'):
+                            next_value = next_value[:-1]
                         next_values.append(next_value)
                         table.iloc[_idx, _desc] = np.nan
                     else:
@@ -198,3 +220,16 @@ class ForecastCleaner(CleanerBaseClass):
     @staticmethod
     def _drop_full_na(table: pd.DataFrame) -> pd.DataFrame:
         return table.dropna(how='all')
+    
+    @staticmethod
+    def _replace_problematic_characters(table: pd.DataFrame) -> pd.DataFrame:
+        """
+        return better chars
+        """
+        def replace(x):
+            if isinstance(x, str):
+                return x.replace('Ŝ', 'ż')
+            return x
+        table.applymap(replace)
+
+        return table
